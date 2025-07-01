@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+python-dotenv
+boto3
+httpx
+amazon-transcribe==0.6.1
+awscrt==0.14.0

@@ -1,0 +1,61 @@
+<!-- static/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Live Transcription Demo</title>
+</head>
+<body>
+  <h1>Amazon Transcribe WebSocket Demo</h1>
+  <button id="start">Start Mic</button>
+  <button id="stop">Stop</button>
+  <pre id="output"></pre>
+
+  <script>
+    let ws;
+    let mediaRecorder;
+
+    const output = document.getElementById('output');
+
+    document.getElementById('start').onclick = async () => {
+      ws = new WebSocket("ws://localhost:8000/ws");
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.text) {
+          output.textContent += (data.is_final ? data.text + "\n" : data.text + " ");
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+
+      processor.onaudioprocess = (e) => {
+        const input = e.inputBuffer.getChannelData(0);
+        const pcm = new Int16Array(input.length);
+        for (let i = 0; i < input.length; i++) {
+          pcm[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
+        }
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(pcm.buffer);
+        }
+      };
+
+      window._audioProcessor = processor;
+      window._stream = stream;
+      window._audioCtx = audioCtx;
+    };
+
+    document.getElementById('stop').onclick = () => {
+      if (ws) ws.close();
+      if (window._audioProcessor) window._audioProcessor.disconnect();
+      if (window._stream) window._stream.getTracks().forEach(t => t.stop());
+      if (window._audioCtx) window._audioCtx.close();
+    };
+  </script>
+</body>
+</html>
