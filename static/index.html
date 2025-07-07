@@ -1,61 +1,249 @@
-<!-- static/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Live Transcription Demo</title>
+    <meta charset="UTF-8">
+    <title>CrimeTracer Voice Transcribe Demo</title>
+    <style>
+        body {
+            margin: 0;
+            background: #181a1b;
+            color: #d3d3d3;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header-bar {
+            background: #22313a;
+            padding: 1em 2em;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .header-bar .logo {
+            display: flex;
+            align-items: center;
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #fff;
+        }
+        .header-bar .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: #2c3e50;
+            border-radius: 50%;
+            margin-right: 0.5em;
+            display: inline-block;
+        }
+        .header-bar .user {
+            font-size: 1em;
+            color: #b0bec5;
+        }
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .center-box {
+            background: #23272a;
+            border-radius: 12px;
+            padding: 2em 2.5em;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 350px;
+        }
+        .crime-logo {
+            font-size: 2em;
+            color: #4fc3f7;
+            margin-bottom: 0.5em;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+        .search-row {
+            display: flex;
+            width: 100%;
+            margin: 1em 0;
+        }
+        .search-row input[type="text"] {
+            flex: 1;
+            padding: 0.7em;
+            border: none;
+            border-radius: 4px 0 0 4px;
+            background: #181a1b;
+            color: #d3d3d3;
+            font-size: 1em;
+        }
+        .search-row button {
+            padding: 0.7em 1.5em;
+            border: none;
+            border-radius: 0 4px 4px 0;
+            background: #2496ad;
+            color: #fff;
+            font-size: 1em;
+            cursor: pointer;
+        }
+        .advanced-link {
+            color: #4fc3f7;
+            text-decoration: none;
+            font-size: 0.95em;
+            margin-bottom: 1.5em;
+            align-self: flex-start;
+        }
+        .voice-row {
+            margin: 1.5em 0 0 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .voice-row button {
+            margin: 0.5em 0;
+            padding: 0.7em 1.5em;
+            border: none;
+            border-radius: 4px;
+            background: #2496ad;
+            color: #fff;
+            font-size: 1em;
+            cursor: pointer;
+        }
+        #transcript {
+            margin-top: 1em;
+            background: #181a1b;
+            border-radius: 6px;
+            padding: 1em;
+            min-height: 8em;
+            width: 420px;
+            color: #fff;
+            font-size: 1.2em;
+            box-sizing: border-box;
+            resize: vertical;
+            overflow-y: auto;
+            transition: background 0.2s;
+        }
+        .footer {
+            background: #23272a;
+            color: #b0bec5;
+            text-align: center;
+            padding: 1em 0 0.5em 0;
+            font-size: 0.95em;
+            letter-spacing: 0.5px;
+        }
+        .footer-logo {
+            margin-bottom: 0.3em;
+            font-size: 1.1em;
+            color: #4fc3f7;
+        }
+    </style>
 </head>
 <body>
-  <h1>Amazon Transcribe WebSocket Demo</h1>
-  <button id="start">Start Mic</button>
-  <button id="stop">Stop</button>
-  <pre id="output"></pre>
+    <div class="header-bar">
+        <div class="logo">
+            <span class="logo-icon"></span>
+            CrimeTracer<sup style="font-size:0.5em; color:#4fc3f7;">™</sup>
+        </div>
+        <div class="user">
+            Welcome, Demo User
+        </div>
+    </div>
+    <div class="main-content">
+        <div class="center-box">
+            <div class="crime-logo">CrimeTracer<sup style="font-size:0.5em; color:#4fc3f7;">™</sup></div>
+            <div class="search-row">
+                <input type="text" placeholder="Search...">
+                <button>Search</button>
+            </div>
+            <a href="#" class="advanced-link">Advanced Search</a>
+            <div class="voice-row">
+                <button id="start">Start Recording</button>
+                <button id="stop" disabled>Stop Recording</button>
+                <div id="transcript">Transcript will appear here...</div>
+            </div>
+            <button style="margin-top:2em; background:#23272a; color:#b0bec5; border:1px solid #4fc3f7;">
+                <span style="margin-right:0.5em;">💡</span>Submit your success story
+            </button>
+        </div>
+    </div>
+    <div class="footer">
+        <div class="footer-logo">SoundThinking<sup style="font-size:0.5em; color:#4fc3f7;">®</sup></div>
+        &copy; 2025 | All rights reserved
+    </div>
+    <script>
+        let ws;
+        let audioContext;
+        let processor;
+        let input;
+        let stream;
+        let isRecording = false;
+        let runningTranscript = "";
 
-  <script>
-    let ws;
-    let mediaRecorder;
+        const transcriptDiv = document.getElementById('transcript');
+        const startBtn = document.getElementById('start');
+        const stopBtn = document.getElementById('stop');
 
-    const output = document.getElementById('output');
+        startBtn.onclick = async () => {
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            transcriptDiv.textContent = '';
+            runningTranscript = '';
 
-    document.getElementById('start').onclick = async () => {
-      ws = new WebSocket("ws://localhost:8000/ws");
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.text) {
-          output.textContent += (data.is_final ? data.text + "\n" : data.text + " ");
-        }
-      };
+            ws = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
+            ws.binaryType = "arraybuffer";
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                // Append only if is_final is true or undefined
+                if (data.text && (data.is_final === undefined || data.is_final)) {
+                    runningTranscript += data.text + " ";
+                    transcriptDiv.textContent = runningTranscript.trim();
+                }
+            };
+            ws.onclose = () => {
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            };
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const audioCtx = new AudioContext();
-      const source = audioCtx.createMediaStreamSource(stream);
-      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert("getUserMedia is not supported in this browser.");
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                return;
+            }
 
-      source.connect(processor);
-      processor.connect(audioCtx.destination);
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            input = audioContext.createMediaStreamSource(stream);
 
-      processor.onaudioprocess = (e) => {
-        const input = e.inputBuffer.getChannelData(0);
-        const pcm = new Int16Array(input.length);
-        for (let i = 0; i < input.length; i++) {
-          pcm[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
-        }
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(pcm.buffer);
-        }
-      };
+            processor = audioContext.createScriptProcessor(4096, 1, 1);
+            input.connect(processor);
+            processor.connect(audioContext.destination);
 
-      window._audioProcessor = processor;
-      window._stream = stream;
-      window._audioCtx = audioCtx;
-    };
+            processor.onaudioprocess = (e) => {
+                if (!isRecording) return;
+                const inputData = e.inputBuffer.getChannelData(0);
+                let pcm = new Int16Array(inputData.length);
+                for (let i = 0; i < inputData.length; i++) {
+                    let s = Math.max(-1, Math.min(1, inputData[i]));
+                    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                }
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(pcm.buffer);
+                }
+            };
+            isRecording = true;
+        };
 
-    document.getElementById('stop').onclick = () => {
-      if (ws) ws.close();
-      if (window._audioProcessor) window._audioProcessor.disconnect();
-      if (window._stream) window._stream.getTracks().forEach(t => t.stop());
-      if (window._audioCtx) window._audioCtx.close();
-    };
-  </script>
+        stopBtn.onclick = () => {
+            isRecording = false;
+            if (processor) processor.disconnect();
+            if (input) input.disconnect();
+            if (audioContext) audioContext.close();
+            if (stream) stream.getTracks().forEach(track => track.stop());
+            if (ws) ws.close();
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        };
+    </script>
 </body>
 </html>

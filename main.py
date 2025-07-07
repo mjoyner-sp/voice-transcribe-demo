@@ -1,70 +1,71 @@
 # main.py
 
 import asyncio
-import sounddevice as sd
-import numpy as np
+from fastapi import FastAPI, WebSocket
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from amazon_transcribe.client import TranscribeStreamingClient
 from amazon_transcribe.handlers import TranscriptResultStreamHandler
 from amazon_transcribe.model import TranscriptEvent
+import uvicorn
 
-REGION = "us-west-2"  # Change to your AWS region if needed
+REGION = "us-west-2"  # Change to your AWS region
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static", html=True), name="static")
+
+@app.get("/")
+def root():
+    return FileResponse("static/index.html")
 
 class MyEventHandler(TranscriptResultStreamHandler):
+    def __init__(self, output_stream, websocket):
+        super().__init__(output_stream)
+        self.websocket = websocket
+
     async def handle_transcript_event(self, transcript_event: TranscriptEvent):
         for result in transcript_event.transcript.results:
+            print(result)  # Debug: See the actual attributes
             if result.alternatives:
                 transcript = result.alternatives[0].transcript
                 if transcript:
-                    print(f"> {transcript}")
+                    # Determine is_final based on available attributes
+                    is_final = getattr(result, "is_partial", None)
+                    if is_final is not None:
+                        is_final = not is_final  # True if not partial
+                    else:
+                        is_final = getattr(result, "result_type", "") == "FINAL"
+                    try:
+                        await self.websocket.send_json({
+                            "text": transcript,
+                            "is_final": is_final
+                        })
+                    except Exception:
+                        return
 
-async def mic_stream_generator():
-    loop = asyncio.get_running_loop()
-    q = asyncio.Queue()
-
-    def callback(indata, frames, time, status):
-        if status:
-            print(status)
-        loop.call_soon_threadsafe(q.put_nowait, indata.copy())
-
-    stream = sd.InputStream(
-        samplerate=16000,
-        channels=1,
-        dtype="int16",
-        blocksize=3200,  # 100ms of audio at 16kHz mono 16-bit
-        callback=callback
-    )
-    stream.start()
-
+async def stream_input(input_stream, websocket):
     try:
         while True:
-            indata = await q.get()
-            pcm_data = indata.flatten().tobytes()
-            yield pcm_data
-    except asyncio.CancelledError:
-        stream.stop()
-        raise
+            data = await websocket.receive_bytes()
+            await input_stream.send_audio_event(audio_chunk=data)
+    except Exception:
+        pass
+    await input_stream.end_stream()
 
-async def main():
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
     client = TranscribeStreamingClient(region=REGION)
     stream = await client.start_stream_transcription(
         language_code="en-US",
         media_sample_rate_hz=16000,
         media_encoding="pcm"
     )
-
-    handler = MyEventHandler(stream.output_stream)
+    handler = MyEventHandler(stream.output_stream, websocket)
     await asyncio.gather(
         handler.handle_events(),
-        stream_input(stream.input_stream)
+        stream_input(stream.input_stream, websocket)
     )
 
-async def stream_input(input_stream):
-    async for chunk in mic_stream_generator():
-        await input_stream.send_audio_event(audio_chunk=chunk)
-    await input_stream.end_stream()
-
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n[Stopped]")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
