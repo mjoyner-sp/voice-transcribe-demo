@@ -26,7 +26,7 @@ class MyEventHandler(TranscriptResultStreamHandler):
     async def handle_transcript_event(self, transcript_event: TranscriptEvent):
         for result in transcript_event.transcript.results:
             print(result)  # Debug: See the actual attributes
-            if result.alternatives:
+            if result.alternatives: 
                 transcript = result.alternatives[0].transcript
                 if transcript:
                     # Determine is_final based on available attributes

@@ -159,7 +159,7 @@
             <div class="voice-row">
                 <button id="start">Start Recording</button>
                 <button id="stop" disabled>Stop Recording</button>
-                <div id="transcript">Transcript will appear here...</div>
+                <div id="transcript" contenteditable="true"></div>
             </div>
             <button style="margin-top:2em; background:#23272a; color:#b0bec5; border:1px solid #4fc3f7;">
                 <span style="margin-right:0.5em;">💡</span>Submit your success story
@@ -177,26 +177,44 @@
         let input;
         let stream;
         let isRecording = false;
-        let runningTranscript = "";
+        let autoTranscript = ""; // Only auto-generated text
+        let userTranscript = ""; // User-edited text
 
         const transcriptDiv = document.getElementById('transcript');
         const startBtn = document.getElementById('start');
         const stopBtn = document.getElementById('stop');
 
+        // Track if user has edited
+        let userHasEdited = false;
+
+        transcriptDiv.addEventListener('input', () => {
+            userHasEdited = true;
+            userTranscript = transcriptDiv.innerText;
+        });
+
         startBtn.onclick = async () => {
             startBtn.disabled = true;
             stopBtn.disabled = false;
             transcriptDiv.textContent = '';
-            runningTranscript = '';
+            autoTranscript = '';
+            userTranscript = '';
+            userHasEdited = false;
 
             ws = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
             ws.binaryType = "arraybuffer";
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                // Append only if is_final is true or undefined
                 if (data.text && (data.is_final === undefined || data.is_final)) {
-                    runningTranscript += data.text + " ";
-                    transcriptDiv.textContent = runningTranscript.trim();
+                    autoTranscript += data.text + " ";
+                    // If user hasn't edited, just show autoTranscript
+                    if (!userHasEdited) {
+                        transcriptDiv.textContent = autoTranscript.trim();
+                    } else {
+                        // If user has edited, append new auto text after user text
+                        if (!userTranscript.endsWith(data.text)) {
+                            transcriptDiv.textContent = userTranscript + " " + data.text;
+                        }
+                    }
                 }
             };
             ws.onclose = () => {
