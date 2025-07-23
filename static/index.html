@@ -200,10 +200,37 @@
             userTranscript = '';
             userHasEdited = false;
 
-            ws = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
+            // Create a div for error messages if it doesn't exist
+            let errorDiv = document.querySelector('.error');
+            if (!errorDiv) {
+                errorDiv = document.createElement('div');
+                errorDiv.className = 'error';
+                errorDiv.style.display = 'none';
+                errorDiv.style.color = '#ff6b6b';
+                errorDiv.style.padding = '10px';
+                errorDiv.style.marginBottom = '10px';
+                errorDiv.style.borderRadius = '4px';
+                errorDiv.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
+                errorDiv.style.border = '1px solid #ff6b6b';
+                document.querySelector('.voice-row').insertBefore(errorDiv, transcriptDiv);
+            }
+
+            // Updated WebSocket URL for Express
+            ws = new WebSocket(`ws://${window.location.host}`);
             ws.binaryType = "arraybuffer";
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
+                
+                // Handle error messages from server
+                if (data.error) {
+                    errorDiv.textContent = data.error;
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+                
+                // Hide error message if we get successful data
+                errorDiv.style.display = 'none';
+                
                 if (data.text && (data.is_final === undefined || data.is_final)) {
                     autoTranscript += data.text + " ";
                     // If user hasn't edited, just show autoTranscript
@@ -216,6 +243,14 @@
                         }
                     }
                 }
+            };
+            
+            ws.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                errorDiv.textContent = "Connection error. Please try again.";
+                errorDiv.style.display = 'block';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
             };
             ws.onclose = () => {
                 startBtn.disabled = false;
@@ -237,6 +272,19 @@
             input.connect(processor);
             processor.connect(audioContext.destination);
 
+            // Set up heartbeat to prevent AWS timeouts during silence
+            let lastAudioSentTime = Date.now();
+            const heartbeatInterval = setInterval(() => {
+                const now = Date.now();
+                if (now - lastAudioSentTime > 5000 && isRecording && ws && ws.readyState === WebSocket.OPEN) {
+                    // Send silent audio as heartbeat
+                    const silentPcm = new Int16Array(1600); // 100ms of silence
+                    ws.send(silentPcm.buffer);
+                    console.log("Sent heartbeat audio");
+                    lastAudioSentTime = now;
+                }
+            }, 5000);
+            
             processor.onaudioprocess = (e) => {
                 if (!isRecording) return;
                 const inputData = e.inputBuffer.getChannelData(0);
@@ -247,21 +295,73 @@
                 }
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(pcm.buffer);
+                    lastAudioSentTime = Date.now();
                 }
             };
+            
+            // Store heartbeat interval for cleanup
+            ws._heartbeatInterval = heartbeatInterval;
             isRecording = true;
         };
 
-        stopBtn.onclick = () => {
+        function stopRecording() {
             isRecording = false;
-            if (processor) processor.disconnect();
-            if (input) input.disconnect();
-            if (audioContext) audioContext.close();
-            if (stream) stream.getTracks().forEach(track => track.stop());
-            if (ws) ws.close();
+            
+            // Clear heartbeat interval if exists
+            if (ws && ws._heartbeatInterval) {
+                clearInterval(ws._heartbeatInterval);
+                ws._heartbeatInterval = null;
+            }
+            
+            // Clean up audio resources
+            if (processor) {
+                try {
+                    processor.disconnect();
+                } catch (e) {
+                    console.error("Error disconnecting processor:", e);
+                }
+            }
+            
+            if (input) {
+                try {
+                    input.disconnect();
+                } catch (e) {
+                    console.error("Error disconnecting input:", e);
+                }
+            }
+            
+            if (audioContext) {
+                try {
+                    audioContext.close();
+                } catch (e) {
+                    console.error("Error closing audio context:", e);
+                }
+            }
+            
+            if (stream) {
+                try {
+                    stream.getTracks().forEach(track => track.stop());
+                } catch (e) {
+                    console.error("Error stopping tracks:", e);
+                }
+            }
+            
+            if (ws) {
+                try {
+                    ws.close();
+                } catch (e) {
+                    console.error("Error closing WebSocket:", e);
+                }
+            }
+            
             startBtn.disabled = false;
             stopBtn.disabled = true;
-        };
+        }
+        
+        stopBtn.onclick = stopRecording;
+        
+        // Also clean up on page unload
+        window.addEventListener('beforeunload', stopRecording);
     </script>
 </body>
 </html>
